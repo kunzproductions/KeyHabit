@@ -1,99 +1,144 @@
-# Test nhanh trong blender
-# NOTE: Ưu tiên dùng icon gốc Blender (UI PNG) qua mapping BLENDER_ICON_BY_MOD cập nhật mới nhất.
-# - BLENDER_ICON_BY_MOD: ánh xạ chuẩn tên modifier -> tên icon UI (ví dụ 'ARRAY' -> 'MOD_ARRAY').
-# - Luôn default dùng icon Blender; emoji chỉ là fallback khi không lấy được texture/icon_id hoặc khi bật USE_EMOJI_ICONS.
-# - Code draw icon phải truy cập trực tiếp dict BLENDER_ICON_BY_MOD (không dùng emoji trừ khi fallback).
-# - Đảm bảo vẽ icon trước, trả về width + padding để không đè text.
-import bpy
-import blf
-import math
-import gpu
-from gpu_extras.batch import batch_for_shader
-_handler = None
-# ==== CONFIG ====
-USE_EMOJI_ICONS = False   # True = dùng emoji legacy để test UI/fallback khi thiếu icon
-ICON_SIZE_PX   = 16       # kích thước icon (px)
-ICON_PAD_PX    = 4        # khoảng cách icon -> text (px)
-# ==== COLOR CONFIG ====
-COLOR_BOX   = (1.0, 0.45, 0.0, 1.0)   # Cam ngoặc vuông/label
-COLOR_LABEL = (1.0, 0.45, 0.0, 1.0)   # Cam tiêu đề
-COLOR_VAL   = (0.85, 0.92, 0.4, 1.0)  # Xanh lá nhãn thông số
-COLOR_NUM   = (1.0, 1.0, 1.0, 1.0)    # Trắng giá trị
-COLOR_ON    = (0.2, 0.6, 1.0, 1.0)    # Xanh dương trạng thái bật
-COLOR_OFF   = (1.0, 0.25, 0.17, 1.0)  # Đỏ trạng thái tắt
-COLOR_FUNC  = COLOR_LABEL
-COLOR_SRC   = COLOR_NUM
-# ================ ICON GỐC BLENDER (UI icon) ================
-# Mapping cập nhật theo Blender UI icons (tên icon trong enum ICON):
-# Tham khảo: icon prefix 'MOD_*' cho hầu hết modifier; một số dùng tên đặc thù.
-# Luôn truy cập dict này để lấy icon_name -> icon_id -> GPUTexture. Emoji chỉ fallback.
-BLENDER_ICON_BY_MOD = {
-    # Generate/Arraying
-    'ARRAY'           : 'MOD_ARRAY',
-    'BEVEL'           : 'MOD_BEVEL',
-    'BOOLEAN'         : 'MOD_BOOLEAN',
-    'MIRROR'          : 'MOD_MIRROR',
-    'SUBSURF'         : 'MOD_SUBSURF',   # Subdivision Surface
-    'SOLIDIFY'        : 'MOD_SOLIDIFY',
-    'REMESH'          : 'MOD_REMESH',
-    if not bpy.context.selected_objects:
-        return
-    font_id, y, lh = 0, 15, 18
-    obj = bpy.context.active_object
-    blf.size(font_id, 12)
-    if obj and obj.type == 'MESH':
-        for mod in reversed(obj.modifiers):
-            x = 20
-            icon_w = draw_modifier_icon(font_id, x, y, mod.type, icon_size=ICON_SIZE_PX)
-            x += int(icon_w) + ICON_PAD_PX
-            tc = get_modifier_line(mod)
-            for txt, col in tc:
-                blf.position(font_id, x, y, 0)
-                blf.color(font_id, *col)
-                blf.draw(font_id, txt)
-                text_w = blf.dimensions(font_id, txt)[0]
-                x += int(text_w)
-            y += lh
-    else:
-        blf.position(font_id, 20, y, 0)
-        blf.color(font_id, 1.0, 1.0, 0.2, 1.0)
-        blf.draw(font_id, "Không có object MESH được chọn")
-def enable_overlay_demo():
-    global _handler
-    if _handler is None:
-        _handler = bpy.types.SpaceView3D.draw_handler_add(draw_overlay_demo, (), 'WINDOW', 'POST_PIXEL')
-        print("✅ Overlay demo đã bật! (icon Blender qua GPU, legacy emoji để so sánh)")
-        for area in bpy.context.window.screen.areas:
-            if area.type == 'VIEW_3D':
-                area.tag_redraw()
-def disable_overlay_demo():
-    global _handler
-    if _handler is not None:
-        bpy.types.SpaceView3D.draw_handler_remove(_handler, 'WINDOW')
-        _handler = None
-        print("❌ Overlay demo đã tắt!")
-        for area in bpy.context.window.screen.areas:
-            if area.type == 'VIEW_3D':
-                area.tag_redraw()
-enable_overlay_demo()
+# HƯỚNG DẪN SỬ DỤNG (Vietnamese Instructions)
+# File này chứa các công cụ nhanh cho Blender:
+# - Toggle Wireframe: Bật/tắt hiển thị wireframe
+# - Transform Origin: Di chuyển origin của object
+# - Toggle All Modifiers: Bật/tắt tất cả modifiers trong viewport
+# - Toggle Subdivision Surface: Bật/tắt modifier Subdivision Surface
+# 
+# Cách sử dụng:
+# 1. Mở Blender
+# 2. Vào Text Editor và load file này
+# 3. Chạy script (Alt+P hoặc Run Script)
+# 4. Panel "Quick Tools" sẽ xuất hiện trong tab Tool ở 3D Viewport
 
-# --- KeyHabit Toggle Wireframe Overlay và Transform Data Origin ---
 import bpy
 
-class KH_OT_ToggleWireframe(bpy.types.Operator):
-    bl_idname = "keyhabit.toggle_wireframe"
-    bl_label = "Toggle Wireframe Overlay"
+# Operator: Toggle Wireframe
+class OBJECT_OT_toggle_wireframe(bpy.types.Operator):
+    """Toggle wireframe overlay for selected objects"""
+    bl_idname = "object.toggle_wireframe"
+    bl_label = "Toggle Wireframe"
+    bl_options = {'REGISTER', 'UNDO'}
+    
     def execute(self, context):
-        for area in context.window.screen.areas:
-            if area.type == 'VIEW_3D':
-                space = area.spaces.active
-                space.shading.show_wireframes = not space.shading.show_wireframes
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                obj.show_wire = not obj.show_wire
         return {'FINISHED'}
 
-class KH_OT_ToggleDataOrigin(bpy.types.Operator):
-    bl_idname = "keyhabit.toggle_data_origin"
-    bl_label = "Toggle Transform Data Origin"
+# Operator: Origin to Geometry
+class OBJECT_OT_origin_to_geometry(bpy.types.Operator):
+    """Move origin to geometry center"""
+    bl_idname = "object.origin_to_geometry"
+    bl_label = "Origin to Geometry"
+    bl_options = {'REGISTER', 'UNDO'}
+    
     def execute(self, context):
-        context.scene.tool_settings.use_transform_data_origin = not context.scene.tool_settings.use_transform_data_origin
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
+        self.report({'INFO'}, "Origin moved to geometry")
         return {'FINISHED'}
-# --- Hết đoạn code mới ---
+
+# Operator: Origin to 3D Cursor
+class OBJECT_OT_origin_to_cursor(bpy.types.Operator):
+    """Move origin to 3D cursor location"""
+    bl_idname = "object.origin_to_cursor"
+    bl_label = "Origin to 3D Cursor"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+        self.report({'INFO'}, "Origin moved to 3D cursor")
+        return {'FINISHED'}
+
+# Operator: Toggle All Modifiers
+class OBJECT_OT_toggle_all_modifiers(bpy.types.Operator):
+    """Toggle visibility of all modifiers in viewport"""
+    bl_idname = "object.toggle_all_modifiers"
+    bl_label = "Toggle All Modifiers"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH' and obj.modifiers:
+                # Check current state of first modifier
+                first_state = obj.modifiers[0].show_viewport if obj.modifiers else True
+                # Toggle all modifiers to opposite state
+                for mod in obj.modifiers:
+                    mod.show_viewport = not first_state
+                self.report({'INFO'}, f"Modifiers {'enabled' if not first_state else 'disabled'} for {obj.name}")
+        return {'FINISHED'}
+
+# Operator: Toggle Subdivision Surface
+class OBJECT_OT_toggle_subsurf(bpy.types.Operator):
+    """Toggle Subdivision Surface modifier visibility in viewport"""
+    bl_idname = "object.toggle_subsurf"
+    bl_label = "Toggle Subdivision Surface"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        found_subsurf = False
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                for mod in obj.modifiers:
+                    if mod.type == 'SUBSURF':
+                        mod.show_viewport = not mod.show_viewport
+                        found_subsurf = True
+                        self.report({'INFO'}, f"Subdivision Surface {'enabled' if mod.show_viewport else 'disabled'} for {obj.name}")
+        
+        if not found_subsurf:
+            self.report({'WARNING'}, "No Subdivision Surface modifier found on selected objects")
+        
+        return {'FINISHED'}
+
+# Panel: Quick Tools
+class VIEW3D_PT_quick_tools(bpy.types.Panel):
+    """Quick access panel for wireframe and origin tools"""
+    bl_label = "Quick Tools"
+    bl_idname = "VIEW3D_PT_quick_tools"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Tool'
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        # Wireframe section
+        box = layout.box()
+        box.label(text="Wireframe Overlay")
+        box.operator("object.toggle_wireframe", icon='SHADING_WIRE')
+        
+        # Origin Transform section
+        box = layout.box()
+        box.label(text="Transform Origin")
+        box.operator("object.origin_to_geometry", icon='OBJECT_ORIGIN')
+        box.operator("object.origin_to_cursor", icon='PIVOT_CURSOR')
+        
+        # Modifiers section
+        box = layout.box()
+        box.label(text="Modifiers Control")
+        box.operator("object.toggle_all_modifiers", icon='MODIFIER')
+        box.operator("object.toggle_subsurf", icon='MOD_SUBSURF')
+
+# Register classes
+def register():
+    bpy.utils.register_class(OBJECT_OT_toggle_wireframe)
+    bpy.utils.register_class(OBJECT_OT_origin_to_geometry)
+    bpy.utils.register_class(OBJECT_OT_origin_to_cursor)
+    bpy.utils.register_class(OBJECT_OT_toggle_all_modifiers)
+    bpy.utils.register_class(OBJECT_OT_toggle_subsurf)
+    bpy.utils.register_class(VIEW3D_PT_quick_tools)
+
+def unregister():
+    bpy.utils.unregister_class(VIEW3D_PT_quick_tools)
+    bpy.utils.unregister_class(OBJECT_OT_toggle_subsurf)
+    bpy.utils.unregister_class(OBJECT_OT_toggle_all_modifiers)
+    bpy.utils.unregister_class(OBJECT_OT_origin_to_cursor)
+    bpy.utils.unregister_class(OBJECT_OT_origin_to_geometry)
+    bpy.utils.unregister_class(OBJECT_OT_toggle_wireframe)
+
+if __name__ == "__main__":
+    register()
