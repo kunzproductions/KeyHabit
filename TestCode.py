@@ -1,3 +1,8 @@
+import bpy
+from bpy.types import GizmoGroup, Operator
+
+_handler = None
+
 def draw_overlay_demo():
     if not bpy.context.selected_objects:
         return
@@ -238,3 +243,4 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+
