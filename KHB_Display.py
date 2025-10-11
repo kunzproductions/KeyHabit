@@ -481,13 +481,31 @@ class KBH_ButtonManager:
     def __init__(self):
         self.buttons = []
         self.initialized = False
+        self.settings = {
+            'show_buttons': True,
+            'button_size': 32,
+            'position': 'BOTTOM_LEFT',
+        }
+    
+    def khb_update_settings(self, new_settings):
+        """Update button settings from preferences"""
+        self.settings.update(new_settings)
+        
+        # Re-initialize buttons with new settings
+        if self.initialized:
+            self.initialized = False
+            self.khb_initialize_buttons()
     
     def khb_initialize_buttons(self):
-        """Initialize control buttons"""
+        """Initialize control buttons với settings"""
         if self.initialized:
             return
         
         self.buttons.clear()
+        
+        # Skip if buttons disabled
+        if not self.settings.get('show_buttons', True):
+            return
         
         # Button configuration
         button_configs = [
@@ -497,28 +515,46 @@ class KBH_ButtonManager:
             ('split_normals', 'khb_overlay.toggle_split_normals', 'Toggle Split Normals', '')
         ]
         
-        # Position calculation
-        start_x = 50
-        button_y = 60  # From bottom
+        # Calculate position based on settings
+        button_size = self.settings.get('button_size', KBH_BUTTON_SIZE)
+        position = self.settings.get('position', 'BOTTOM_LEFT')
+        
+        if position == 'BOTTOM_LEFT':
+            start_x, start_y = 50, 60
+        elif position == 'BOTTOM_RIGHT':
+            # Calculate from right edge (approximate)
+            start_x, start_y = 400, 60  
+        elif position == 'TOP_LEFT':
+            start_x, start_y = 50, 300
+        elif position == 'TOP_RIGHT':
+            start_x, start_y = 400, 300
+        else:
+            start_x, start_y = 50, 60
+        
         x = start_x
         
         for button_id, operator_id, tooltip, icon in button_configs:
             button = KBH_ControlButton(
                 button_id=button_id,
                 x=x,
-                y=button_y,
-                size=KBH_BUTTON_SIZE,
+                y=start_y,
+                size=button_size,
                 operator_idname=operator_id,
                 tooltip=tooltip,
                 icon_name=icon
             )
             self.buttons.append(button)
-            x += KBH_BUTTON_SIZE + KBH_BUTTON_GAP
+            x += button_size + KBH_BUTTON_GAP
         
         self.initialized = True
     
+    
     def khb_draw_all_buttons(self):
         """Vẽ tất cả control buttons"""
+        # Check if buttons should be shown
+        if not self.settings.get('show_buttons', True):
+            return
+            
         if not self.initialized:
             self.khb_initialize_buttons()
         
@@ -861,3 +897,4 @@ def unregister():
 if __name__ == "__main__":
     register()
     khb_display_manager.khb_enable_display_system()
+
