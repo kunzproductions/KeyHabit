@@ -1,7 +1,12 @@
+"""
+KeyHabit Addon - Advanced Blender Tools
+Version: 2.0.0
+"""
+
 bl_info = {
     "name": "KeyHabit", 
     "author": "MinThuan",
-    "version": (0, 0, 2),
+    "version": (2, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar > KeyHabit",
     "description": "Advanced tools for 3D modeling workflow",
@@ -13,9 +18,22 @@ bl_info = {
 import bpy
 from bpy.types import AddonPreferences, PropertyGroup
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty
-from . import KBH_Normal
-from . import KBH_Panel  
-from . import KBH_Display
+
+# ==== IMPORT FIX - Lazy loading để tránh circular import ====
+def _get_display_module():
+    """Lazy import KBH_Display để tránh circular import"""
+    from . import KBH_Display
+    return KBH_Display
+
+def _get_panel_module():
+    """Lazy import KBH_Panel"""
+    from . import KBH_Panel
+    return KBH_Panel
+
+def _get_normal_module():
+    """Lazy import KBH_Normal"""
+    from . import KBH_Normal
+    return KBH_Normal
 
 # ==== ADDON PREFERENCES ====
 class KBH_AddonPreferences(AddonPreferences):
@@ -102,14 +120,19 @@ class KBH_AddonPreferences(AddonPreferences):
     
     def _khb_update_display_system(self, context):
         """Update display system enable/disable"""
-        if self.khb_enable_display_system:
-            # Update settings first
-            self._khb_apply_settings_to_display()
-            # Enable system
-            KBH_Display.khb_display_manager.khb_enable_display_system()
-        else:
-            # Disable system
-            KBH_Display.khb_display_manager.khb_disable_display_system()
+        try:
+            KBH_Display = _get_display_module()
+            
+            if self.khb_enable_display_system:
+                # Update settings first
+                self._khb_apply_settings_to_display()
+                # Enable system
+                KBH_Display.khb_display_manager.khb_enable_display_system()
+            else:
+                # Disable system
+                KBH_Display.khb_display_manager.khb_disable_display_system()
+        except Exception as e:
+            print(f"❌ KBH: Display system update failed - {e}")
     
     def _khb_update_display_settings(self):
         """Update display settings if system is enabled"""
@@ -123,6 +146,8 @@ class KBH_AddonPreferences(AddonPreferences):
     def _khb_apply_settings_to_display(self):
         """Apply preference settings to display system"""
         try:
+            KBH_Display = _get_display_module()
+            
             # Update display constants
             KBH_Display.KBH_ICON_SIZE_PX = self.khb_display_icon_size
             KBH_Display.KBH_ICON_PAD_PX = self.khb_display_icon_padding
@@ -216,6 +241,7 @@ class KBH_AddonPreferences(AddonPreferences):
             
             # System status
             try:
+                KBH_Display = _get_display_module()
                 icon_count = len(KBH_Display.KBH_MODIFIER_ICONS)
                 loaded_icons = len(KBH_Display.khb_icon_manager.preview_collections.get("khb_display_icons", {}))
                 info_col.label(text=f"Icons Available: {loaded_icons}/{icon_count}")
@@ -248,6 +274,8 @@ class KBH_PREFS_OT_reload_icons(bpy.types.Operator):
     
     def execute(self, context):
         try:
+            KBH_Display = _get_display_module()
+            
             # Cleanup and reload icons
             KBH_Display.khb_icon_manager.khb_cleanup_all()
             success = KBH_Display.khb_icon_manager.khb_load_modifier_icons()
@@ -293,13 +321,6 @@ class KBH_PREFS_OT_reset_display(bpy.types.Operator):
         
         return {'FINISHED'}
 
-# ==== ADDON MODULES ====
-khb_modules = [
-    KBH_Normal,
-    KBH_Panel,
-    KBH_Display,
-]
-
 # ==== ADDON CLASSES ====
 khb_addon_classes = (
     KBH_AddonPreferences,
@@ -319,13 +340,20 @@ def register():
         except Exception as e:
             print(f"❌ KeyHabit: {cls.__name__} registration failed - {e}")
     
-    # Register all modules
-    for module in khb_modules:
+    # Register modules using lazy loading
+    khb_modules = [
+        ('KBH_Normal', _get_normal_module),
+        ('KBH_Panel', _get_panel_module),
+        ('KBH_Display', _get_display_module),
+    ]
+    
+    for module_name, module_getter in khb_modules:
         try:
+            module = module_getter()
             module.register()
-            print(f"✅ KeyHabit: {module.__name__} registered")
+            print(f"✅ KeyHabit: {module_name} registered")
         except Exception as e:
-            print(f"❌ KeyHabit: {module.__name__} registration failed - {e}")
+            print(f"❌ KeyHabit: {module_name} registration failed - {e}")
     
     print("🎯 KeyHabit: Registration complete!")
     print("💡 KeyHabit: Configure Display System in Edit > Preferences > Add-ons > KeyHabit")
@@ -336,17 +364,25 @@ def unregister():
     
     # Disable display system first
     try:
+        KBH_Display = _get_display_module()
         KBH_Display.khb_display_manager.khb_disable_display_system()
     except:
         pass
     
-    # Unregister all modules in reverse order
-    for module in reversed(khb_modules):
+    # Unregister modules in reverse order
+    khb_modules = [
+        ('KBH_Display', _get_display_module),
+        ('KBH_Panel', _get_panel_module),
+        ('KBH_Normal', _get_normal_module),
+    ]
+    
+    for module_name, module_getter in khb_modules:
         try:
+            module = module_getter()
             module.unregister()
-            print(f"✅ KeyHabit: {module.__name__} unregistered")
+            print(f"✅ KeyHabit: {module_name} unregistered")
         except Exception as e:
-            print(f"⚠️ KeyHabit: {module.__name__} unregistration error - {e}")
+            print(f"⚠️ KeyHabit: {module_name} unregistration error - {e}")
     
     # Unregister addon classes
     for cls in reversed(khb_addon_classes):
