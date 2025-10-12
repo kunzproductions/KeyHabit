@@ -21,22 +21,22 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty
 
 # ==== IMPORT FIX - Lazy loading để tránh circular import ====
 def _get_display_module():
-    """Lazy import KBH_Display để tránh circular import"""
-    from . import KBH_Display
-    return KBH_Display
+    """Lazy import KHB_Display để tránh circular import"""
+    from . import KHB_Display
+    return KHB_Display
 
 def _get_panel_module():
-    """Lazy import KBH_Panel"""
-    from . import KBH_Panel
-    return KBH_Panel
+    """Lazy import KHB_Panel"""
+    from . import KHB_Panel
+    return KHB_Panel
 
 def _get_normal_module():
-    """Lazy import KBH_Normal"""
-    from . import KBH_Normal
-    return KBH_Normal
+    """Lazy import KHB_Normal"""
+    from . import KHB_Normal
+    return KHB_Normal
 
 # ==== ADDON PREFERENCES ====
-class KBH_AddonPreferences(AddonPreferences):
+class KHB_AddonPreferences(AddonPreferences):
     """KeyHabit Addon Preferences"""
     bl_idname = __name__
     
@@ -121,18 +121,18 @@ class KBH_AddonPreferences(AddonPreferences):
     def _khb_update_display_system(self, context):
         """Update display system enable/disable"""
         try:
-            KBH_Display = _get_display_module()
+            KHB_Display = _get_display_module()
             
             if self.khb_enable_display_system:
                 # Update settings first
                 self._khb_apply_settings_to_display()
                 # Enable system
-                KBH_Display.khb_display_manager.khb_enable_display_system()
+                KHB_Display.khb_display_manager.khb_enable_display_system()
             else:
                 # Disable system
-                KBH_Display.khb_display_manager.khb_disable_display_system()
+                KHB_Display.khb_display_manager.khb_disable_display_system()
         except Exception as e:
-            print(f"❌ KBH: Display system update failed - {e}")
+            print(f"❌ KHB: Display system update failed - {e}")
     
     def _khb_update_display_settings(self):
         """Update display settings if system is enabled"""
@@ -146,26 +146,26 @@ class KBH_AddonPreferences(AddonPreferences):
     def _khb_apply_settings_to_display(self):
         """Apply preference settings to display system"""
         try:
-            KBH_Display = _get_display_module()
+            KHB_Display = _get_display_module()
             
             # Update display constants
-            KBH_Display.KBH_ICON_SIZE_PX = self.khb_display_icon_size
-            KBH_Display.KBH_ICON_PAD_PX = self.khb_display_icon_padding
-            KBH_Display.KBH_LINE_HEIGHT = self.khb_display_line_height
-            KBH_Display.KBH_BUTTON_SIZE = self.khb_control_button_size
+            KHB_Display.KHB_ICON_SIZE_PX = self.khb_display_icon_size
+            KHB_Display.KHB_ICON_PAD_PX = self.khb_display_icon_padding
+            KHB_Display.KHB_LINE_HEIGHT = self.khb_display_line_height
+            KHB_Display.KHB_BUTTON_SIZE = self.khb_control_button_size
             
             # Update button manager settings
-            if hasattr(KBH_Display.khb_button_manager, 'khb_update_settings'):
-                KBH_Display.khb_button_manager.khb_update_settings({
+            if hasattr(KHB_Display.khb_button_manager, 'khb_update_settings'):
+                KHB_Display.khb_button_manager.khb_update_settings({
                     'show_buttons': self.khb_show_control_buttons,
                     'button_size': self.khb_control_button_size,
                     'position': self.khb_control_button_position,
                 })
             
-            print(f"🎨 KBH: Display settings updated")
+            print(f"🎨 KHB: Display settings updated")
             
         except Exception as e:
-            print(f"⚠️ KBH: Settings update failed - {e}")
+            print(f"⚠️ KHB: Settings update failed - {e}")
     
     def draw(self, context):
         """Draw preferences UI"""
@@ -241,12 +241,12 @@ class KBH_AddonPreferences(AddonPreferences):
             
             # System status
             try:
-                KBH_Display = _get_display_module()
-                icon_count = len(KBH_Display.KBH_MODIFIER_ICONS)
-                loaded_icons = len(KBH_Display.khb_icon_manager.preview_collections.get("khb_display_icons", {}))
+                KHB_Display = _get_display_module()
+                icon_count = len(KHB_Display.KHB_MODIFIER_ICONS)
+                loaded_icons = len(KHB_Display.khb_icon_manager.preview_collections.get("khb_display_icons", {}))
                 info_col.label(text=f"Icons Available: {loaded_icons}/{icon_count}")
                 
-                if KBH_Display.khb_display_manager.khb_is_enabled():
+                if KHB_Display.khb_display_manager.khb_is_enabled():
                     info_col.label(text="Render Mode: GPU Accelerated")
                     info_col.label(text="Interaction: Modal Handler Active")
                 
@@ -265,7 +265,7 @@ class KBH_AddonPreferences(AddonPreferences):
             row.operator("khb_prefs.reset_display", text="Reset Settings", icon='LOOP_BACK')
 
 # ==== PREFERENCE OPERATORS ====
-class KBH_PREFS_OT_reload_icons(bpy.types.Operator):
+class KHB_PREFS_OT_reload_icons(bpy.types.Operator):
     """Reload Display System Icons"""
     bl_idname = "khb_prefs.reload_icons"
     bl_label = "Reload Icons"
@@ -274,11 +274,11 @@ class KBH_PREFS_OT_reload_icons(bpy.types.Operator):
     
     def execute(self, context):
         try:
-            KBH_Display = _get_display_module()
+            KHB_Display = _get_display_module()
             
             # Cleanup and reload icons
-            KBH_Display.khb_icon_manager.khb_cleanup_all()
-            success = KBH_Display.khb_icon_manager.khb_load_modifier_icons()
+            KHB_Display.khb_icon_manager.khb_cleanup_all()
+            success = KHB_Display.khb_icon_manager.khb_load_modifier_icons()
             
             if success:
                 self.report({'INFO'}, "Icons reloaded successfully")
@@ -294,7 +294,7 @@ class KBH_PREFS_OT_reload_icons(bpy.types.Operator):
         
         return {'FINISHED'}
 
-class KBH_PREFS_OT_reset_display(bpy.types.Operator):
+class KHB_PREFS_OT_reset_display(bpy.types.Operator):
     """Reset Display Settings"""
     bl_idname = "khb_prefs.reset_display"
     bl_label = "Reset Display Settings"
@@ -323,9 +323,9 @@ class KBH_PREFS_OT_reset_display(bpy.types.Operator):
 
 # ==== ADDON CLASSES ====
 khb_addon_classes = (
-    KBH_AddonPreferences,
-    KBH_PREFS_OT_reload_icons,
-    KBH_PREFS_OT_reset_display,
+    KHB_AddonPreferences,
+    KHB_PREFS_OT_reload_icons,
+    KHB_PREFS_OT_reset_display,
 )
 
 def register():
@@ -342,9 +342,9 @@ def register():
     
     # Register modules using lazy loading
     khb_modules = [
-        ('KBH_Normal', _get_normal_module),
-        ('KBH_Panel', _get_panel_module),
-        ('KBH_Display', _get_display_module),
+        ('KHB_Normal', _get_normal_module),
+        ('KHB_Panel', _get_panel_module),
+        ('KHB_Display', _get_display_module),
     ]
     
     for module_name, module_getter in khb_modules:
@@ -364,16 +364,16 @@ def unregister():
     
     # Disable display system first
     try:
-        KBH_Display = _get_display_module()
-        KBH_Display.khb_display_manager.khb_disable_display_system()
+        KHB_Display = _get_display_module()
+        KHB_Display.khb_display_manager.khb_disable_display_system()
     except:
         pass
     
     # Unregister modules in reverse order
     khb_modules = [
-        ('KBH_Display', _get_display_module),
-        ('KBH_Panel', _get_panel_module),
-        ('KBH_Normal', _get_normal_module),
+        ('KHB_Display', _get_display_module),
+        ('KHB_Panel', _get_panel_module),
+        ('KHB_Normal', _get_normal_module),
     ]
     
     for module_name, module_getter in khb_modules:
@@ -395,3 +395,4 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+
