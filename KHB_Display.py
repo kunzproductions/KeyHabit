@@ -1,6 +1,6 @@
 """
 KHB_Display - KeyHabit Display System
-Version: 1.0.5-final (Working icons + clickable buttons)
+Version: 1.0.6-FINAL (Fixed texture size + working buttons)
 """
 
 import bpy
@@ -20,15 +20,16 @@ _khb_state = {
     'pcoll': None,
     'icons_loaded': False,
     'buttons': [],
-    'modal_running': False
+    'modal_running': False,
+    'last_click_time': 0
 }
 
 # ==== CONSTANTS ====
-KHB_DISPLAY_VERSION = "1.0.5-final"
+KHB_DISPLAY_VERSION = "1.0.6-FINAL"
 KHB_ICON_SIZE_PX = 16
 KHB_ICON_PAD_PX = 4
 KHB_LINE_HEIGHT = 18
-KHB_BUTTON_SIZE = 26
+KHB_BUTTON_SIZE = 28
 
 # ==== COLORS ====
 class KHB_DisplayColors:
@@ -54,12 +55,13 @@ KHB_MODIFIER_ICONS = {
     'DISPLACE': 'blender_icon_mod_displace.png',
     'NODES': 'blender_icon_geometry_nodes.png',
     'TRIANGULATE': 'blender_icon_mod_triangulate.png',
+    'WELD': 'blender_icon_mod_weld.png',
 }
 KHB_FALLBACK_ICON = 'blender_icon_question.png'
 
 # ==== ICON FUNCTIONS ====
 def khb_load_icons():
-    """Load PNG icons with Blender texture support"""
+    """Load PNG icons with correct size detection"""
     global _khb_state
     
     if _khb_state['icons_loaded']:
@@ -125,7 +127,7 @@ def khb_cleanup_icons():
     _khb_state['icons_loaded'] = False
 
 def khb_get_icon_texture(mod_type):
-    """Get GPU texture for PNG icon (WORKING VERSION)"""
+    """Get GPU texture with CORRECT size detection"""
     global _khb_state
     
     if not _khb_state['pcoll']:
@@ -133,53 +135,59 @@ def khb_get_icon_texture(mod_type):
     
     # Try specific modifier icon first
     preview = _khb_state['pcoll'].get(mod_type) or _khb_state['pcoll'].get("FALLBACK")
-    if preview and hasattr(preview, 'icon_id') and preview.icon_id > 0:
+    if preview and hasattr(preview, 'icon_pixels_float') and preview.icon_pixels_float:
         try:
-            # Convert preview icon to GPU texture
             icon_data = preview.icon_pixels_float
-            if icon_data and len(icon_data) > 0:
-                # Create GPU texture from icon data
+            data_size = len(icon_data)
+            
+            # Calculate actual icon size (icons are square)
+            # RGBA = 4 components per pixel
+            pixels_count = data_size // 4
+            icon_size = int(pixels_count ** 0.5)
+            
+            print(f"🎨 KHB_Display: Icon data size: {data_size}, calculated size: {icon_size}x{icon_size}")
+            
+            if icon_size > 0 and icon_size * icon_size * 4 == data_size:
+                # Create GPU texture with correct size
                 import numpy as np
+                pixels = np.array(icon_data).reshape((icon_size, icon_size, 4))
+                texture = gpu.types.GPUTexture((icon_size, icon_size), format='RGBA8', data=pixels)
+                print(f"✅ KHB_Display: Created texture for {mod_type}: {icon_size}x{icon_size}")
+                return texture
+            else:
+                print(f"⚠️ KHB_Display: Invalid icon size calculation for {mod_type}")
                 
-                # Get icon size (typically 32x32)
-                icon_size = int(len(icon_data) ** 0.5 / 4)  # RGBA = 4 components
-                if icon_size > 0:
-                    # Reshape data
-                    pixels = np.array(icon_data).reshape((icon_size, icon_size, 4))
-                    # Create GPU texture
-                    texture = gpu.types.GPUTexture((icon_size, icon_size), format='RGBA8', data=pixels)
-                    return texture
         except Exception as e:
-            print(f"⚠️ KHB_Display: Texture conversion failed: {e}")
+            print(f"⚠️ KHB_Display: Texture conversion failed for {mod_type}: {e}")
     
     return None
 
 # ==== BUTTON SYSTEM ====
 def khb_init_buttons():
-    """Initialize control buttons"""
+    """Initialize control buttons with better positioning"""
     global _khb_state
     
     if _khb_state['buttons']:
         return  # Already initialized
     
     _khb_state['buttons'] = [
-        {'id': 'wireframe', 'label': 'W', 'x': 50, 'y': 50, 'op': 'wireframe'},
-        {'id': 'edge_length', 'label': 'E', 'x': 80, 'y': 50, 'op': 'edge_length'},
-        {'id': 'retopo', 'label': 'R', 'x': 110, 'y': 50, 'op': 'retopo'},
-        {'id': 'split_normals', 'label': 'S', 'x': 140, 'y': 50, 'op': 'split_normals'}
+        {'id': 'wireframe', 'label': 'W', 'x': 60, 'y': 40, 'op': 'wireframe'},
+        {'id': 'edge_length', 'label': 'E', 'x': 95, 'y': 40, 'op': 'edge_length'},
+        {'id': 'retopo', 'label': 'R', 'x': 130, 'y': 40, 'op': 'retopo'},
+        {'id': 'split_normals', 'label': 'S', 'x': 165, 'y': 40, 'op': 'split_normals'}
     ]
     
     print(f"🎮 KHB_Display: {len(_khb_state['buttons'])} control buttons initialized")
 
 def khb_draw_buttons():
-    """Draw control buttons"""
+    """Draw control buttons with better visuals"""
     global _khb_state
     
     if not _khb_state['buttons']:
         khb_init_buttons()
     
     font_id = 0
-    blf.size(font_id, 11)
+    blf.size(font_id, 12)
     
     for btn in _khb_state['buttons']:
         x, y = btn['x'], btn['y']
@@ -190,14 +198,16 @@ def khb_draw_buttons():
         
         # Button colors
         if is_active:
-            bg_color = (0.1, 0.7, 0.2, 0.9)  # Green when active
+            bg_color = (0.1, 0.8, 0.2, 0.9)  # Bright green when active
+            border_color = (1.0, 1.0, 1.0, 1.0)  # White border
             text_color = (1.0, 1.0, 1.0, 1.0)
         else:
-            bg_color = (0.4, 0.4, 0.4, 0.8)  # Gray when inactive
+            bg_color = (0.2, 0.2, 0.2, 0.8)  # Dark gray when inactive
+            border_color = (0.6, 0.6, 0.6, 0.8)  # Gray border
             text_color = (0.9, 0.9, 0.9, 1.0)
         
-        # Draw button background
         try:
+            # Draw button background
             shader = gpu.shader.from_builtin('UNIFORM_COLOR')
             positions = [(x, y), (x+size, y), (x+size, y+size), (x, y+size)]
             batch = batch_for_shader(shader, 'TRI_FAN', {"pos": positions})
@@ -206,18 +216,25 @@ def khb_draw_buttons():
             shader.bind()
             shader.uniform_float("color", bg_color)
             batch.draw(shader)
+            
+            # Draw button border
+            border_positions = [(x-1, y-1), (x+size+1, y-1), (x+size+1, y+size+1), (x-1, y+size+1), (x-1, y-1)]
+            border_batch = batch_for_shader(shader, 'LINE_STRIP', {"pos": border_positions})
+            shader.uniform_float("color", border_color)
+            border_batch.draw(shader)
+            
             gpu.state.blend_set('NONE')
             
-            # Draw button label
-            text_x = x + 7  # Center text
-            text_y = y + 8
+            # Draw button label (centered)
+            text_x = x + (size // 2) - 4  # Center text
+            text_y = y + (size // 2) - 6
             
             blf.position(font_id, text_x, text_y, 0)
             blf.color(font_id, *text_color)
             blf.draw(font_id, btn['label'])
             
         except Exception as e:
-            print(f"⚠️ KHB_Display: Button draw error: {e}")
+            print(f"⚠️ KHB_Display: Button draw error for {btn['id']}: {e}")
 
 def khb_get_overlay_state(button_id):
     """Get current overlay state"""
@@ -235,13 +252,18 @@ def khb_get_overlay_state(button_id):
                             return overlay.show_retopology
                         elif button_id == 'split_normals':
                             return overlay.show_split_normals
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ KHB_Display: Overlay state check failed: {e}")
     return False
 
 def khb_handle_button_click(mouse_x, mouse_y):
-    """Handle button clicks with proper execution"""
+    """Handle button clicks with debouncing"""
     global _khb_state
+    import time
+    
+    current_time = time.time()
+    if current_time - _khb_state['last_click_time'] < 0.3:  # 300ms debounce
+        return False
     
     for btn in _khb_state['buttons']:
         x, y, size = btn['x'], btn['y'], KHB_BUTTON_SIZE
@@ -250,6 +272,7 @@ def khb_handle_button_click(mouse_x, mouse_y):
         if x <= mouse_x <= x + size and y <= mouse_y <= y + size:
             try:
                 # Execute overlay toggle directly
+                success = False
                 for area in bpy.context.window.screen.areas:
                     if area.type == 'VIEW_3D':
                         for space in area.spaces:
@@ -258,25 +281,31 @@ def khb_handle_button_click(mouse_x, mouse_y):
                                 
                                 if btn['op'] == 'wireframe':
                                     overlay.show_wireframes = not overlay.show_wireframes
+                                    success = True
                                 elif btn['op'] == 'edge_length':
                                     overlay.show_extra_edge_length = not overlay.show_extra_edge_length
+                                    success = True
                                 elif btn['op'] == 'retopo':
                                     overlay.show_retopology = not overlay.show_retopology
+                                    success = True
                                 elif btn['op'] == 'split_normals':
                                     overlay.show_split_normals = not overlay.show_split_normals
+                                    success = True
                                 
-                                area.tag_redraw()
-                                print(f"🎯 KHB_Display: Button {btn['id']} clicked - {btn['op']} toggled")
-                                return True
-                                
+                                if success:
+                                    area.tag_redraw()
+                                    _khb_state['last_click_time'] = current_time
+                                    print(f"🎯 KHB_Display: Button '{btn['label']}' clicked - {btn['op']} toggled")
+                                    return True
+                                    
             except Exception as e:
-                print(f"⚠️ KHB_Display: Button execution error: {e}")
+                print(f"⚠️ KHB_Display: Button execution error for {btn['id']}: {e}")
     
     return False
 
 # ==== DRAWING FUNCTIONS ====
 def khb_draw_modifier_icon(font_id, x, y, mod_type, size=KHB_ICON_SIZE_PX):
-    """Draw modifier icon - PNG or text fallback"""
+    """Draw modifier icon - PNG with fallback"""
     
     # Try to draw PNG texture first
     texture = khb_get_icon_texture(mod_type)
@@ -294,21 +323,21 @@ def khb_draw_modifier_icon(font_id, x, y, mod_type, size=KHB_ICON_SIZE_PX):
             batch.draw(shader)
             gpu.state.blend_set('NONE')
             
-            print(f"✅ KHB_Display: Drew PNG icon for {mod_type}")
+            # Only log success occasionally to avoid spam
             return size
         except Exception as e:
             print(f"⚠️ KHB_Display: PNG draw failed for {mod_type}: {e}")
     
-    # Fallback: Draw text abbreviation
-    blf.size(font_id, size - 2)
+    # Fallback: Draw text abbreviation with better styling
+    blf.size(font_id, size - 1)
     blf.position(font_id, x, y, 0)
     blf.color(font_id, 1.0, 0.7, 0.0, 1.0)  # Orange
     
-    # Create abbreviation
+    # Create abbreviation map
     abbrev_map = {
         'BOOLEAN': 'BO', 'MIRROR': 'MI', 'ARRAY': 'AR', 'BEVEL': 'BV',
         'SUBSURF': 'SS', 'SOLIDIFY': 'SO', 'DISPLACE': 'DI', 'NODES': 'GN',
-        'TRIANGULATE': 'TR', 'DECIMATE': 'DE', 'BUILD': 'BU'
+        'TRIANGULATE': 'TR', 'DECIMATE': 'DE', 'BUILD': 'BU', 'WELD': 'WE'
     }
     
     icon_text = abbrev_map.get(mod_type, mod_type[:2])
@@ -353,6 +382,18 @@ def khb_get_modifier_text(modifier):
     elif modifier.type == 'SUBSURF':
         levels = getattr(modifier, 'levels', 0)
         tc.extend([(' Lv', colors.VALUE), (str(levels), colors.NUMBER)])
+    
+    elif modifier.type == 'NODES':
+        # Special handling for Geometry Nodes
+        if "Smooth by Angle" in modifier.name or "Shade Auto Smooth" in modifier.name:
+            tc[1] = ('Shade Auto Smooth', colors.LABEL)  # Replace display name
+            
+            # Try to get angle value
+            if "Input_1" in modifier.keys():
+                import math
+                angle_rad = modifier["Input_1"]
+                angle_deg = round(angle_rad * 180 / math.pi, 1)
+                tc.extend([(' Angle:', colors.VALUE), (f"{angle_deg}°", colors.NUMBER)])
     
     return tc
 
@@ -405,7 +446,7 @@ def khb_enable_display_system():
         return
     
     try:
-        # Load icons
+        # Load icons (suppress texture conversion errors for now)
         khb_load_icons()
         
         # Initialize buttons
@@ -487,6 +528,8 @@ class KHB_OVERLAY_OT_modal_handler(Operator):
             mouse_x = event.mouse_region_x
             mouse_y = event.mouse_region_y
             
+            print(f"🎯 KHB_Display: Click at ({mouse_x}, {mouse_y})")
+            
             # Try to handle button click
             if khb_handle_button_click(mouse_x, mouse_y):
                 # Button was clicked, force redraw
@@ -494,8 +537,8 @@ class KHB_OVERLAY_OT_modal_handler(Operator):
                 return {'RUNNING_MODAL'}
         
         # Check if system is still enabled
-        if not _khb_state['enabled']:
-            _khb_state['modal_running'] = False
+        if not _khb_state['enabled'] or not _khb_state['modal_running']:
+            print("🛑 KHB_Display: Modal handler stopping")
             return {'CANCELLED'}
         
         # Pass through all other events
@@ -508,26 +551,11 @@ class KHB_OVERLAY_OT_modal_handler(Operator):
             _khb_state['modal_op'] = self
             _khb_state['modal_running'] = True
             context.window_manager.modal_handler_add(self)
-            print("🎮 KHB_Display: Modal handler active")
+            print("🎮 KHB_Display: Modal handler active for button interactions")
             return {'RUNNING_MODAL'}
         else:
+            print("⚠️ KHB_Display: Modal invoke failed - not in VIEW_3D")
             return {'CANCELLED'}
-
-# ==== OVERLAY OPERATORS (Backup) ====
-class KHB_OVERLAY_OT_toggle_wireframe(Operator):
-    bl_idname = "khb_overlay.toggle_wireframe"
-    bl_label = "Toggle Wireframe"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    def execute(self, context):
-        for area in context.window.screen.areas:
-            if area.type == 'VIEW_3D':
-                for space in area.spaces:
-                    if space.type == 'VIEW_3D':
-                        space.overlay.show_wireframes = not space.overlay.show_wireframes
-                        area.tag_redraw()
-                        break
-        return {'FINISHED'}
 
 # ==== LEGACY COMPATIBILITY ====
 class KHB_IconManager:
@@ -551,7 +579,6 @@ khb_button_manager = KHB_ButtonManager()
 # ==== REGISTRATION ====
 khb_display_classes = (
     KHB_OVERLAY_OT_modal_handler,
-    KHB_OVERLAY_OT_toggle_wireframe,
 )
 
 def register():
@@ -583,7 +610,7 @@ def unregister():
     _khb_state = {
         'handler': None, 'modal_op': None, 'enabled': False,
         'pcoll': None, 'icons_loaded': False, 'buttons': [],
-        'modal_running': False
+        'modal_running': False, 'last_click_time': 0
     }
     
     # Unregister classes
