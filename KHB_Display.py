@@ -1,336 +1,483 @@
-# ==== BUTTON SYSTEM (ENHANCED WITH ICONS) ====
-# Button icon mapping
-KHB_BUTTON_ICONS = {
-    'wireframe': 'blender_icon_overlay_wireframe.png',
-    'edge_length': 'blender_icon_overlay_edge_length.png', 
-    'retopo': 'blender_icon_overlay_retopo.png',
-    'split_normals': 'blender_icon_overlay_normals.png'
+"""
+KeyHabit Addon - Advanced Blender Tools
+Version: 2.0.1-optimized
+Author: MinThuan
+"""
+
+bl_info = {
+    "name": "KeyHabit",
+    "author": "MinThuan", 
+    "version": (2, 0, 1),
+    "blender": (4, 0, 0),
+    "location": "View3D > Sidebar > KeyHabit",
+    "description": "Advanced tools for 3D modeling workflow with modifier overlay display",
+    "warning": "",
+    "doc_url": "",
+    "category": "3D View",
 }
 
-def khb_init_buttons():
-    """Initialize control buttons with icons and full names"""
-    global _khb_state
-    
-    if not _khb_state['settings']['show_buttons']:
-        _khb_state['buttons'] = []
-        return
-    
-    # Button configuration with full names
-    buttons_config = [
-        {
-            'id': 'wireframe', 
-            'label': 'Wireframe', 
-            'icon_name': 'wireframe',
-            'tooltip': 'Toggle Wireframe Overlay (Show mesh edges)'
-        },
-        {
-            'id': 'edge_length', 
-            'label': 'Edge Length', 
-            'icon_name': 'edge_length',
-            'tooltip': 'Toggle Edge Length Display (Show edge measurements)'
-        },
-        {
-            'id': 'retopo', 
-            'label': 'Retopology', 
-            'icon_name': 'retopo',
-            'tooltip': 'Toggle Retopology Overlay (Show through geometry)'
-        },
-        {
-            'id': 'split_normals', 
-            'label': 'Split Normals', 
-            'icon_name': 'split_normals',
-            'tooltip': 'Toggle Split Normals Display (Show vertex normals)'
-        }
-    ]
-    
-    # Calculate positions based on settings
-    position = _khb_state['settings']['position']
-    if position == 'BOTTOM_LEFT':
-        start_x, start_y = 60, 40
-    elif position == 'BOTTOM_RIGHT':
-        start_x, start_y = 300, 40
-    elif position == 'TOP_LEFT':
-        start_x, start_y = 60, 200
-    else:  # TOP_RIGHT
-        start_x, start_y = 300, 200
-    
-    # Create button data with proper sizing for icon + text
-    _khb_state['buttons'] = []
-    x = start_x
-    
-    for config in buttons_config:
-        # Calculate button width based on text length
-        button_width = max(80, len(config['label']) * 8 + 30)  # Min 80px, scale with text
-        
-        _khb_state['buttons'].append({
-            'id': config['id'],
-            'label': config['label'],
-            'icon_name': config['icon_name'], 
-            'tooltip': config['tooltip'],
-            'x': x,
-            'y': start_y,
-            'width': button_width,
-            'height': KHB_BUTTON_SIZE
-        })
-        x += button_width + 12  # 12px spacing between buttons
-    
-    if _khb_state['buttons']:
-        print(f"🎮 KHB_Display: {len(_khb_state['buttons'])} icon buttons initialized at {position}")
+import bpy
+from bpy.types import AddonPreferences
+from bpy.props import BoolProperty, IntProperty, EnumProperty
+import importlib
+import sys
+import os
+from pathlib import Path
 
-def khb_get_button_icon_texture(icon_name):
-    """Get texture for button icon (with fallback to question mark)"""
-    global _khb_state
-    
-    if not _khb_state['pcoll'] or not _khb_state['settings']['use_png']:
-        return None
-    
-    # Try to get specific button icon
-    icon_filename = KHB_BUTTON_ICONS.get(icon_name)
-    if icon_filename:
-        preview = _khb_state['pcoll'].get(icon_name)
-        if preview:
-            return khb_create_texture_from_preview(preview)
-    
-    # Fallback to question mark icon
-    fallback = _khb_state['pcoll'].get("FALLBACK")
-    if fallback:
-        return khb_create_texture_from_preview(fallback)
-    
-    return None
+# ==== MODULE CACHE (Prevent import loops) ====
+_khb_module_cache = {}
 
-def khb_create_texture_from_preview(preview):
-    """Create GPU texture from preview (helper function)"""
-    if not preview or not hasattr(preview, 'icon_pixels_float'):
-        return None
-    
-    try:
-        icon_data = preview.icon_pixels_float
-        if not icon_data:
-            return None
-        
-        # Calculate icon dimensions
-        data_size = len(icon_data)
-        pixels_count = data_size // 4  # RGBA
-        icon_size = int(pixels_count ** 0.5)
-        
-        if icon_size > 0 and icon_size * icon_size * 4 == data_size:
-            # Convert to proper GPU buffer
-            import numpy as np
-            pixels = np.array(icon_data, dtype=np.float32).reshape((icon_size, icon_size, 4))
-            buffer_data = gpu.types.Buffer('FLOAT', (icon_size, icon_size, 4), pixels)
-            texture = gpu.types.GPUTexture((icon_size, icon_size), format='RGBA8', data=buffer_data)
-            return texture
+def get_display_module():
+    """Get KHB_Display module with caching"""
+    if 'KHB_Display' not in _khb_module_cache:
+        try:
+            module_name = f'{__name__}.KHB_Display'
+            if module_name in sys.modules:
+                module = sys.modules[module_name]
+            else:
+                module = importlib.import_module('.KHB_Display', package=__name__)
             
-    except Exception:
-        pass
+            _khb_module_cache['KHB_Display'] = module
+            return module
+        except ImportError as e:
+            print(f"❌ KeyHabit: Cannot import KHB_Display - {e}")
+            return None
+        except Exception as e:
+            print(f"❌ KeyHabit: KHB_Display import error - {e}")
+            return None
     
-    return None
+    return _khb_module_cache['KHB_Display']
 
-def khb_draw_buttons():
-    """Draw control buttons with icons and full text labels"""
-    global _khb_state
-    
-    if not _khb_state['buttons']:
-        return
-    
-    font_id = 0
-    blf.size(font_id, 11)
-    colors = KHB_Colors()
-    
-    for btn in _khb_state['buttons']:
-        x, y = btn['x'], btn['y'] 
-        width, height = btn['width'], btn['height']
-        is_active = khb_get_overlay_state(btn['id'])
+def reload_display_module():
+    """Force reload display module"""
+    try:
+        module_name = f'{__name__}.KHB_Display'
+        if module_name in sys.modules:
+            importlib.reload(sys.modules[module_name])
         
-        # Choose colors
-        if is_active:
-            bg_color = colors.BUTTON_ACTIVE  # Bright green
-            text_color = colors.BUTTON_TEXT
-            border_color = (1.0, 1.0, 1.0, 1.0)  # White border
-        else:
-            bg_color = colors.BUTTON_INACTIVE  # Dark gray
-            text_color = (0.8, 0.8, 0.8, 1.0)   # Gray text
-            border_color = (0.6, 0.6, 0.6, 0.8)  # Gray border
+        # Clear cache to force fresh import
+        _khb_module_cache.pop('KHB_Display', None)
+        module = get_display_module()
+        
+        print("✅ KeyHabit: KHB_Display reloaded successfully")
+        return module
+    except Exception as e:
+        print(f"❌ KeyHabit: Reload failed - {e}")
+        return None
+
+# ==== ADDON PREFERENCES ====
+class KHB_AddonPreferences(AddonPreferences):
+    """KeyHabit Addon Preferences with display system controls"""
+    bl_idname = __name__
+    
+    # === DISPLAY SYSTEM PROPERTIES ===
+    khb_enable_display_system: BoolProperty(
+        name="Enable Display System",
+        description="Enable real-time modifier overlay display with icons and controls",
+        default=False,
+        update=lambda self, context: self._update_display_system()
+    )
+    
+    khb_icon_size: IntProperty(
+        name="Icon Size",
+        description="Size of modifier icons in pixels", 
+        default=16,
+        min=12,
+        max=24,
+        update=lambda self, context: self._update_display_settings()
+    )
+    
+    khb_line_height: IntProperty(
+        name="Line Height",
+        description="Vertical spacing between modifier lines",
+        default=18,
+        min=14,
+        max=28,
+        update=lambda self, context: self._update_display_settings()
+    )
+    
+    khb_show_buttons: BoolProperty(
+        name="Show Control Buttons",
+        description="Display interactive overlay control buttons with icons",
+        default=True,
+        update=lambda self, context: self._update_display_settings()
+    )
+    
+    khb_button_position: EnumProperty(
+        name="Button Position",
+        description="Position of control buttons in viewport",
+        items=[
+            ('BOTTOM_LEFT', "Bottom Left", "Position at bottom left"),
+            ('BOTTOM_RIGHT', "Bottom Right", "Position at bottom right"),
+            ('TOP_LEFT', "Top Left", "Position at top left"),
+            ('TOP_RIGHT', "Top Right", "Position at top right"),
+        ],
+        default='BOTTOM_LEFT',
+        update=lambda self, context: self._update_display_settings()
+    )
+    
+    khb_use_png_icons: BoolProperty(
+        name="Use PNG Icons",
+        description="Try to load PNG icons from icons/ folder (fallback to alternatives if unavailable)",
+        default=True,
+        update=lambda self, context: self._update_display_settings()
+    )
+    
+    # === INTERNAL METHODS ===
+    def _update_display_system(self):
+        """Toggle display system on/off"""
+        display_module = get_display_module()
+        if not display_module:
+            self.khb_enable_display_system = False
+            return
         
         try:
-            # Draw button background
-            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-            positions = [(x, y), (x+width, y), (x+width, y+height), (x, y+height)]
-            batch = batch_for_shader(shader, 'TRI_FAN', {"pos": positions})
-            
-            gpu.state.blend_set('ALPHA')
-            shader.bind()
-            shader.uniform_float("color", bg_color)
-            batch.draw(shader)
-            
-            # Draw border
-            border_positions = [
-                (x-1, y-1), (x+width+1, y-1), 
-                (x+width+1, y+height+1), (x-1, y+height+1), (x-1, y-1)
-            ]
-            border_batch = batch_for_shader(shader, 'LINE_STRIP', {"pos": border_positions})
-            shader.uniform_float("color", border_color)
-            border_batch.draw(shader)
-            
-            gpu.state.blend_set('NONE')
-            
-            # Draw button icon (left side)
-            icon_size = 16
-            icon_x = x + 6  # 6px padding from left
-            icon_y = y + (height - icon_size) // 2  # Center vertically
-            
-            # Try to draw PNG icon
-            texture = khb_get_button_icon_texture(btn['icon_name'])
-            if texture:
-                try:
-                    # Draw PNG icon
-                    icon_positions = [
-                        (icon_x, icon_y), (icon_x+icon_size, icon_y), 
-                        (icon_x+icon_size, icon_y+icon_size), (icon_x, icon_y+icon_size)
-                    ]
-                    uvs = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
-                    
-                    icon_shader = gpu.shader.from_builtin('IMAGE')
-                    icon_batch = batch_for_shader(icon_shader, 'TRI_FAN', {"pos": icon_positions, "texCoord": uvs})
-                    
-                    gpu.state.blend_set('ALPHA')
-                    icon_shader.bind()
-                    icon_shader.uniform_sampler("image", texture)
-                    icon_batch.draw(icon_shader)
-                    gpu.state.blend_set('NONE')
-                    
-                except Exception:
-                    # Fallback to question mark text
-                    blf.position(font_id, icon_x, icon_y, 0)
-                    blf.color(font_id, 1.0, 0.7, 0.0, 1.0)  # Orange
-                    blf.draw(font_id, "?")
+            if self.khb_enable_display_system:
+                # Apply current settings
+                self._apply_settings_to_module(display_module)
+                # Enable system
+                display_module.khb_enable_display_system()
+                print("✅ KHB: Display System Enabled")
             else:
-                # Fallback: Draw question mark
-                blf.size(font_id, icon_size - 2)
-                blf.position(font_id, icon_x, icon_y, 0)
-                blf.color(font_id, 1.0, 0.7, 0.0, 1.0)  # Orange
-                blf.draw(font_id, "?")
+                # Disable system
+                display_module.khb_disable_display_system()
+                print("❌ KHB: Display System Disabled")
+        except Exception as e:
+            print(f"❌ KHB: Display toggle failed - {e}")
+            self.khb_enable_display_system = False
+    
+    def _update_display_settings(self):
+        """Update display settings if system is enabled"""
+        if not self.khb_enable_display_system:
+            return
+        
+        display_module = get_display_module()
+        if display_module:
+            self._apply_settings_to_module(display_module)
+    
+    def _apply_settings_to_module(self, display_module):
+        """Apply preference settings to display module"""
+        try:
+            # Update global constants
+            if hasattr(display_module, 'KHB_ICON_SIZE_PX'):
+                display_module.KHB_ICON_SIZE_PX = self.khb_icon_size
+            if hasattr(display_module, 'KHB_LINE_HEIGHT'):
+                display_module.KHB_LINE_HEIGHT = self.khb_line_height
             
-            # Draw button text label (right side)
-            blf.size(font_id, 11)  # Reset font size
-            text_x = icon_x + icon_size + 6  # 6px padding after icon
-            text_y = y + (height // 2) - 6  # Center vertically
+            # Update button settings
+            if hasattr(display_module, 'khb_update_button_settings'):
+                display_module.khb_update_button_settings({
+                    'show_buttons': self.khb_show_buttons,
+                    'position': self.khb_button_position
+                })
             
-            blf.position(font_id, text_x, text_y, 0)
-            blf.color(font_id, *text_color)
-            blf.draw(font_id, btn['label'])
+            # Update icon settings
+            if hasattr(display_module, 'khb_update_icon_settings'):
+                display_module.khb_update_icon_settings({
+                    'use_png': self.khb_use_png_icons
+                })
+            
+            # Force redraw
+            if hasattr(display_module, 'khb_force_redraw'):
+                display_module.khb_force_redraw()
+                
+        except Exception as e:
+            print(f"⚠️ KHB: Settings apply failed - {e}")
+    
+    # === UI DRAWING ===
+    def draw(self, context):
+        """Draw addon preferences UI"""
+        layout = self.layout
+        display_module = get_display_module()
+        
+        # === HEADER ===
+        header_box = layout.box()
+        header_row = header_box.row()
+        header_row.label(text="🎨 KeyHabit Display System", icon='OVERLAY')
+        
+        if hasattr(display_module, 'KHB_DISPLAY_VERSION'):
+            header_row.label(text=f"v{display_module.KHB_DISPLAY_VERSION}")
+        
+        # === MODULE STATUS CHECK ===
+        if not display_module:
+            self._draw_error_state(layout)
+            return
+        
+        # === MAIN CONTROLS ===
+        main_box = layout.box()
+        col = main_box.column()
+        
+        # System toggle
+        toggle_row = col.row()
+        toggle_row.scale_y = 1.3
+        
+        if self.khb_enable_display_system:
+            toggle_row.prop(self, "khb_enable_display_system", 
+                          text="🟢 Display System Active", toggle=True)
+            
+            # Active status
+            status_row = col.row()
+            status_row.label(text="● Status: RUNNING", icon='CHECKMARK')
+            
+            # Settings when enabled
+            self._draw_display_settings(col)
+            
+        else:
+            toggle_row.prop(self, "khb_enable_display_system", 
+                          text="⚫ Enable Display System", toggle=True)
+            
+            # Inactive status
+            status_row = col.row()
+            status_row.label(text="○ Status: DISABLED", icon='CANCEL')
+        
+        # === MODULE INFO ===
+        self._draw_module_info(layout, display_module)
+        
+        # === QUICK ACTIONS ===
+        self._draw_quick_actions(layout)
+    
+    def _draw_error_state(self, layout):
+        """Draw error state when module is not available"""
+        error_box = layout.box()
+        error_col = error_box.column()
+        error_col.alert = True
+        error_col.label(text="⚠️ KHB_Display Module Not Found", icon='ERROR')
+        error_col.label(text="The display system module is missing or failed to load")
+        
+        # Debug info
+        debug_box = layout.box()
+        debug_col = debug_box.column()
+        debug_col.label(text="Troubleshooting:", icon='CONSOLE')
+        
+        try:
+            addon_dir = Path(__file__).parent
+            khb_display_path = addon_dir / "KHB_Display.py"
+            
+            if khb_display_path.exists():
+                debug_col.label(text="✓ KHB_Display.py file exists")
+                debug_col.label(text="✗ Module import failed (check console for errors)")
+            else:
+                debug_col.label(text="✗ KHB_Display.py file missing")
+                debug_col.label(text="Please ensure the file is in the addon folder")
+                
+        except Exception:
+            debug_col.label(text="Cannot read addon directory")
+    
+    def _draw_display_settings(self, col):
+        """Draw display settings when system is enabled"""
+        col.separator()
+        
+        # Display settings
+        display_box = col.box()
+        display_col = display_box.column()
+        display_col.label(text="Display Settings:", icon='SETTINGS')
+        
+        settings_row = display_col.row(align=True)
+        settings_row.prop(self, "khb_icon_size")
+        settings_row.prop(self, "khb_line_height")
+        
+        display_col.prop(self, "khb_use_png_icons")
+        
+        # Button settings
+        button_box = col.box()
+        button_col = button_box.column()
+        button_col.label(text="Control Buttons:", icon='PREFERENCES')
+        
+        button_col.prop(self, "khb_show_buttons")
+        if self.khb_show_buttons:
+            button_col.prop(self, "khb_button_position", text="Position")
+            button_col.label(text="💡 Buttons show: Icon + Full Name", icon='INFO')
+    
+    def _draw_module_info(self, layout, display_module):
+        """Draw module information"""
+        info_box = layout.box()
+        info_col = info_box.column()
+        info_col.label(text="System Information:", icon='INFO')
+        
+        # Version info
+        if hasattr(display_module, 'KHB_DISPLAY_VERSION'):
+            info_col.label(text=f"Display Engine: {display_module.KHB_DISPLAY_VERSION}")
+        
+        # Icon count
+        if hasattr(display_module, 'KHB_MODIFIER_ICONS'):
+            modifier_count = len(display_module.KHB_MODIFIER_ICONS)
+            info_col.label(text=f"Modifier Icons: {modifier_count}")
+        
+        if hasattr(display_module, 'KHB_BUTTON_ICONS'):
+            button_count = len(display_module.KHB_BUTTON_ICONS)
+            info_col.label(text=f"Button Icons: {button_count}")
+        
+        # System status
+        if hasattr(display_module, 'khb_is_enabled'):
+            is_active = display_module.khb_is_enabled()
+            status_text = "Active" if is_active else "Inactive"
+            info_col.label(text=f"Engine Status: {status_text}")
+    
+    def _draw_quick_actions(self, layout):
+        """Draw quick action buttons"""
+        actions_box = layout.box()
+        actions_col = actions_box.column()
+        actions_col.label(text="Quick Actions:", icon='TOOL_SETTINGS')
+        
+        actions_row = actions_col.row(align=True)
+        actions_row.operator("khb_prefs.reload_module", text="Reload Module", icon='FILE_REFRESH')
+        actions_row.operator("khb_prefs.reload_icons", text="Reload Icons", icon='IMAGE_DATA')
+        actions_row.operator("khb_prefs.force_cleanup", text="Emergency Cleanup", icon='TRASH')
+
+# ==== PREFERENCE OPERATORS ====
+class KHB_PREFS_OT_reload_module(bpy.types.Operator):
+    """Reload KHB_Display module"""
+    bl_idname = "khb_prefs.reload_module"
+    bl_label = "Reload Module"
+    bl_description = "Reload the display system module (useful during development)"
+    bl_options = {'REGISTER'}
+    
+    def execute(self, context):
+        try:
+            # Get current state
+            prefs = context.preferences.addons[__name__].preferences
+            was_enabled = prefs.khb_enable_display_system
+            
+            # Disable if currently enabled
+            if was_enabled:
+                prefs.khb_enable_display_system = False
+            
+            # Reload module
+            module = reload_display_module()
+            if module:
+                # Re-enable if it was enabled
+                if was_enabled:
+                    prefs.khb_enable_display_system = True
+                
+                self.report({'INFO'}, "Display module reloaded successfully")
+            else:
+                self.report({'ERROR'}, "Module reload failed")
+                
+        except Exception as e:
+            self.report({'ERROR'}, f"Reload error: {e}")
+        
+        return {'FINISHED'}
+
+class KHB_PREFS_OT_reload_icons(bpy.types.Operator):
+    """Reload PNG icons"""
+    bl_idname = "khb_prefs.reload_icons"
+    bl_label = "Reload Icons"
+    bl_description = "Reload all PNG icons from the icons folder"
+    bl_options = {'REGISTER'}
+    
+    def execute(self, context):
+        try:
+            display_module = get_display_module()
+            if not display_module:
+                self.report({'ERROR'}, "Display module not available")
+                return {'CANCELLED'}
+            
+            # Reload icons
+            if hasattr(display_module, 'khb_reload_icons'):
+                success = display_module.khb_reload_icons()
+                if success:
+                    self.report({'INFO'}, "Icons reloaded successfully")
+                    display_module.khb_force_redraw()
+                else:
+                    self.report({'WARNING'}, "Icon reload completed with warnings")
+            else:
+                self.report({'ERROR'}, "Icon reload function not available")
+                
+        except Exception as e:
+            self.report({'ERROR'}, f"Icon reload error: {e}")
+        
+        return {'FINISHED'}
+
+class KHB_PREFS_OT_force_cleanup(bpy.types.Operator):
+    """Emergency cleanup of all resources"""
+    bl_idname = "khb_prefs.force_cleanup"
+    bl_label = "Emergency Cleanup"
+    bl_description = "Force cleanup all display system resources (use if system becomes unresponsive)"
+    bl_options = {'REGISTER'}
+    
+    def execute(self, context):
+        try:
+            # Disable display system
+            display_module = get_display_module()
+            if display_module and hasattr(display_module, 'khb_emergency_cleanup'):
+                display_module.khb_emergency_cleanup()
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
+            # Force viewport redraw
+            for area in context.window.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+            
+            # Reset preferences
+            prefs = context.preferences.addons[__name__].preferences
+            prefs.khb_enable_display_system = False
+            
+            self.report({'INFO'}, "Emergency cleanup completed")
             
         except Exception as e:
-            print(f"⚠️ KHB_Display: Button draw error for {btn['id']}: {e}")
+            self.report({'ERROR'}, f"Cleanup error: {e}")
+        
+        return {'FINISHED'}
 
-def khb_handle_click(mouse_x, mouse_y):
-    """Handle button clicks with enhanced hit detection"""
-    global _khb_state
-    
-    current_time = time.time()
-    if current_time - _khb_state['last_click_time'] < 0.2:  # 200ms debounce
-        return False
-    
-    for btn in _khb_state['buttons']:
-        x, y = btn['x'], btn['y']
-        width, height = btn['width'], btn['height']
-        
-        # Enhanced hit test for wider buttons
-        if x <= mouse_x <= x + width and y <= mouse_y <= y + height:
-            try:
-                # Toggle overlay directly
-                success = False
-                for area in bpy.context.window.screen.areas:
-                    if area.type == 'VIEW_3D':
-                        for space in area.spaces:
-                            if space.type == 'VIEW_3D':
-                                overlay = space.overlay
-                                
-                                if btn['id'] == 'wireframe':
-                                    overlay.show_wireframes = not overlay.show_wireframes
-                                    success = True
-                                elif btn['id'] == 'edge_length':
-                                    overlay.show_extra_edge_length = not overlay.show_extra_edge_length
-                                    success = True
-                                elif btn['id'] == 'retopo':
-                                    overlay.show_retopology = not overlay.show_retopology
-                                    success = True
-                                elif btn['id'] == 'split_normals':
-                                    overlay.show_split_normals = not overlay.show_split_normals
-                                    success = True
-                                
-                                if success:
-                                    area.tag_redraw()
-                                    _khb_state['last_click_time'] = current_time
-                                    print(f"🎯 KHB_Display: '{btn['label']}' button clicked")
-                                    return True
-                                
-            except Exception as e:
-                print(f"⚠️ KHB_Display: Button click error for {btn['id']}: {e}")
-    
-    return False
+# ==== REGISTRATION ====
+khb_classes = (
+    KHB_AddonPreferences,
+    KHB_PREFS_OT_reload_module,
+    KHB_PREFS_OT_reload_icons,
+    KHB_PREFS_OT_force_cleanup,
+)
 
-# ==== ENHANCED ICON LOADING (Add button icons to regular loading) ====
-def khb_load_icons():
-    """Load PNG icons including button icons"""
-    global _khb_state
+def register():
+    """Register KeyHabit addon"""
+    print("🚀 KeyHabit: Starting registration...")
     
-    if _khb_state['icons_loaded'] or not _khb_state['settings']['use_png']:
-        return True
+    # Register addon classes
+    for cls in khb_classes:
+        try:
+            bpy.utils.register_class(cls)
+            print(f"✅ KeyHabit: {cls.__name__} registered")
+        except Exception as e:
+            print(f"❌ KeyHabit: {cls.__name__} registration failed - {e}")
     
-    try:
-        # Clean up existing collection
-        khb_cleanup_icons()
-        
-        # Create new preview collection
-        pcoll = bpy.utils.previews.new()
-        
-        # Get icons directory
-        addon_dir = Path(__file__).parent
-        icons_dir = addon_dir / "icons"
-        
-        if not icons_dir.exists():
-            print(f"⚠️ KHB_Display: Icons directory not found, using fallbacks")
-            bpy.utils.previews.remove(pcoll)
-            return False
-        
-        loaded_count = 0
-        
-        # Load fallback icon (question mark)
-        fallback_path = icons_dir / KHB_FALLBACK_ICON
-        if fallback_path.exists():
-            pcoll.load("FALLBACK", str(fallback_path), 'IMAGE')
-            loaded_count += 1
-            print("✅ KHB_Display: Loaded fallback icon (question mark)")
-        
-        # Load modifier icons
-        for mod_type, filename in KHB_MODIFIER_ICONS.items():
-            icon_path = icons_dir / filename
-            if icon_path.exists():
-                try:
-                    pcoll.load(mod_type, str(icon_path), 'IMAGE')
-                    loaded_count += 1
-                except Exception:
-                    pass
-        
-        # Load button icons
-        for button_id, filename in KHB_BUTTON_ICONS.items():
-            icon_path = icons_dir / filename
-            if icon_path.exists():
-                try:
-                    pcoll.load(button_id, str(icon_path), 'IMAGE')
-                    loaded_count += 1
-                    print(f"✅ KHB_Display: Loaded button icon: {button_id}")
-                except Exception:
-                    print(f"⚠️ KHB_Display: Failed to load button icon: {filename}")
-        
-        _khb_state['pcoll'] = pcoll
-        _khb_state['icons_loaded'] = True
-        
-        print(f"🎨 KHB_Display: Icon system initialized ({loaded_count} total icons loaded)")
-        print("📝 KHB_Display: Button icons will fallback to question mark if not found")
-        return True
-        
-    except Exception as e:
-        print(f"⚠️ KHB_Display: Icon loading failed - {e}")
-        return False
+    # Register KHB_Display module
+    display_module = get_display_module()
+    if display_module and hasattr(display_module, 'register'):
+        try:
+            display_module.register()
+            print("✅ KeyHabit: KHB_Display registered")
+        except Exception as e:
+            print(f"❌ KeyHabit: KHB_Display registration failed - {e}")
+    
+    print("🎯 KeyHabit: Registration complete!")
+    print("💡 Access Display System: Edit > Preferences > Add-ons > KeyHabit")
+
+def unregister():
+    """Unregister KeyHabit addon"""
+    print("🛑 KeyHabit: Starting unregistration...")
+    
+    # Unregister KHB_Display module first
+    display_module = get_display_module()
+    if display_module and hasattr(display_module, 'unregister'):
+        try:
+            display_module.unregister()
+            print("✅ KeyHabit: KHB_Display unregistered")
+        except Exception as e:
+            print(f"⚠️ KeyHabit: KHB_Display unregistration error - {e}")
+    
+    # Unregister addon classes
+    for cls in reversed(khb_classes):
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception as e:
+            print(f"⚠️ KeyHabit: {cls.__name__} unregistration error - {e}")
+    
+    # Clear module cache
+    _khb_module_cache.clear()
+    
+    print("👋 KeyHabit: Unregistration complete!")
+
+if __name__ == "__main__":
+    register()
