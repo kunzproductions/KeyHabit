@@ -357,14 +357,13 @@ def khb_init_buttons():
         print(f"🎮 KHB_Display: {len(_khb_state['buttons'])} icon buttons initialized at {position}")
 
 def khb_draw_buttons():
-    """Draw control buttons with icons and full text labels"""
+    """Draw enhanced control buttons with icons and full text labels"""
     global _khb_state
     
     if not _khb_state['buttons']:
         return
     
     font_id = 0
-    blf.size(font_id, 11)
     colors = KHB_Colors()
     
     for btn in _khb_state['buttons']:
@@ -374,13 +373,13 @@ def khb_draw_buttons():
         
         # Choose colors based on state
         if is_active:
-            bg_color = colors.BUTTON_ACTIVE
-            text_color = colors.BUTTON_TEXT
-            border_color = colors.BUTTON_BORDER_ACTIVE
+            bg_color = colors.BUTTON_ACTIVE      # Bright green when active
+            text_color = colors.BUTTON_TEXT      # White text
+            border_color = colors.BUTTON_BORDER_ACTIVE  # White border
         else:
-            bg_color = colors.BUTTON_INACTIVE
-            text_color = colors.BUTTON_TEXT_INACTIVE
-            border_color = colors.BUTTON_BORDER_INACTIVE
+            bg_color = colors.BUTTON_INACTIVE    # Dark gray when inactive
+            text_color = colors.BUTTON_TEXT_INACTIVE    # Gray text
+            border_color = colors.BUTTON_BORDER_INACTIVE # Gray border
         
         try:
             # Draw button background
@@ -404,13 +403,15 @@ def khb_draw_buttons():
             
             gpu.state.blend_set('NONE')
             
-            # Draw button icon (left side)
+            # Draw button icon (left side) - 16x16 px
             icon_size = 16
-            icon_x = x + 6  # 6px padding from left
+            icon_x = x + 8  # 8px padding from left
             icon_y = y + (height - icon_size) // 2  # Center vertically
             
-            # Try to draw PNG icon
+            # Try to draw PNG icon first
             texture = khb_get_button_icon_texture(btn['icon_name'])
+            drew_png = False
+            
             if texture:
                 try:
                     # Draw PNG icon
@@ -428,28 +429,41 @@ def khb_draw_buttons():
                     icon_shader.uniform_sampler("image", texture)
                     icon_batch.draw(icon_shader)
                     gpu.state.blend_set('NONE')
+                    drew_png = True
                     
-                except Exception:
-                    # Fallback to question mark text
-                    blf.size(font_id, icon_size - 2)
-                    blf.position(font_id, icon_x, icon_y, 0)
-                    blf.color(font_id, 1.0, 0.7, 0.0, 1.0)  # Orange
-                    blf.draw(font_id, "?")
-            else:
-                # Fallback: Draw question mark
-                blf.size(font_id, icon_size - 2)
-                blf.position(font_id, icon_x, icon_y, 0)
-                blf.color(font_id, 1.0, 0.7, 0.0, 1.0)  # Orange
+                except Exception as e:
+                    print(f"⚠️ KHB_Display: PNG icon draw failed for {btn['id']}: {e}")
+            
+            if not drew_png:
+                # Fallback: Draw question mark icon (colored square)
+                fallback_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+                icon_positions = [(icon_x, icon_y), (icon_x+icon_size, icon_y), 
+                                (icon_x+icon_size, icon_y+icon_size), (icon_x, icon_y+icon_size)]
+                icon_batch = batch_for_shader(fallback_shader, 'TRI_FAN', {"pos": icon_positions})
+                
+                gpu.state.blend_set('ALPHA')
+                fallback_shader.bind()
+                fallback_shader.uniform_float("color", (1.0, 0.7, 0.0, 0.8))  # Orange square
+                icon_batch.draw(fallback_shader)
+                gpu.state.blend_set('NONE')
+                
+                # Draw ? text on top
+                blf.size(font_id, 12)
+                blf.position(font_id, icon_x + 4, icon_y + 2, 0)  # Center ? in square
+                blf.color(font_id, 1.0, 1.0, 1.0, 1.0)  # White text
                 blf.draw(font_id, "?")
             
-            # Draw button text label (right side)
-            blf.size(font_id, 11)  # Reset font size
-            text_x = icon_x + icon_size + 6  # 6px padding after icon
-            text_y = y + (height // 2) - 6  # Center vertically
+            # Draw button text label (right side of icon)
+            blf.size(font_id, 11)  # Set font size for label
+            text_x = icon_x + icon_size + 8  # 8px padding after icon
+            text_y = y + (height // 2) - 6   # Center vertically
             
             blf.position(font_id, text_x, text_y, 0)
             blf.color(font_id, *text_color)
-            blf.draw(font_id, btn['label'])
+            blf.draw(font_id, btn['label'])  # Draw FULL NAME (Wireframe, Edge Length, etc.)
+            
+            # Debug: Draw button bounds (optional - remove in production)
+            # print(f"🎮 Button '{btn['label']}' at ({x},{y}) size {width}x{height}")
             
         except Exception as e:
             print(f"⚠️ KHB_Display: Button draw error for {btn['id']}: {e}")
@@ -475,19 +489,26 @@ def khb_get_overlay_state(button_id):
     return False
 
 def khb_handle_click(mouse_x, mouse_y):
-    """Handle button clicks with enhanced hit detection"""
+    """Handle button clicks with enhanced debugging and hit detection"""
     global _khb_state
     
     current_time = time.time()
-    if current_time - _khb_state['last_click_time'] < 0.2:  # 200ms debounce
+    if current_time - _khb_state['last_click_time'] < 0.15:  # 150ms debounce
         return False
+    
+    print(f"🎯 KHB_Display: Click detected at ({mouse_x}, {mouse_y})")
     
     for btn in _khb_state['buttons']:
         x, y = btn['x'], btn['y']
         width, height = btn['width'], btn['height']
         
-        # Enhanced hit test for wider buttons
-        if x <= mouse_x <= x + width and y <= mouse_y <= y + height:
+        print(f"🎮 Testing button '{btn['label']}' bounds: ({x},{y}) to ({x+width},{y+height})")
+        
+        # Enhanced hit test with tolerance
+        tolerance = 2  # 2px tolerance
+        if (x - tolerance) <= mouse_x <= (x + width + tolerance) and (y - tolerance) <= mouse_y <= (y + height + tolerance):
+            print(f"🎯 HIT! Button '{btn['label']}' clicked")
+            
             try:
                 # Toggle overlay directly
                 success = False
@@ -496,29 +517,37 @@ def khb_handle_click(mouse_x, mouse_y):
                         for space in area.spaces:
                             if space.type == 'VIEW_3D':
                                 overlay = space.overlay
+                                old_state = None
                                 
                                 if btn['id'] == 'wireframe':
+                                    old_state = overlay.show_wireframes
                                     overlay.show_wireframes = not overlay.show_wireframes
                                     success = True
                                 elif btn['id'] == 'edge_length':
+                                    old_state = overlay.show_extra_edge_length
                                     overlay.show_extra_edge_length = not overlay.show_extra_edge_length
                                     success = True
                                 elif btn['id'] == 'retopo':
+                                    old_state = overlay.show_retopology
                                     overlay.show_retopology = not overlay.show_retopology
                                     success = True
                                 elif btn['id'] == 'split_normals':
+                                    old_state = overlay.show_split_normals
                                     overlay.show_split_normals = not overlay.show_split_normals
                                     success = True
                                 
                                 if success:
                                     area.tag_redraw()
                                     _khb_state['last_click_time'] = current_time
-                                    print(f"🎯 KHB_Display: '{btn['label']}' button clicked")
+                                    print(f"✅ KHB_Display: '{btn['label']}' toggled from {old_state} to {not old_state}")
                                     return True
                                 
             except Exception as e:
-                print(f"⚠️ KHB_Display: Button click error for {btn['id']}: {e}")
+                print(f"⚠️ KHB_Display: Button execution error for {btn['id']}: {e}")
+        else:
+            print(f"⚪ MISS: Click outside '{btn['label']}' bounds")
     
+    print("❌ No button hit detected")
     return False
 
 # ==== DRAWING FUNCTIONS ====
@@ -800,30 +829,39 @@ def khb_reload_icons():
         return khb_load_icons()
     return True
 
-# ==== MODAL OPERATOR ====
+# ==== IMPROVED MODAL OPERATOR ====
 class KHB_DISPLAY_OT_modal_handler(Operator):
-    """Modal handler for button interactions"""
+    """Enhanced modal handler for button interactions"""
     bl_idname = "khb_display.modal_handler"
     bl_label = "KHB Display Modal Handler"
+    bl_description = "Handles mouse clicks on overlay control buttons"
     
     def modal(self, context, event):
         global _khb_state
         
-        # Handle mouse clicks
-        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+        # Only handle left mouse button press in 3D viewport
+        if (event.type == 'LEFTMOUSE' and event.value == 'PRESS' and 
+            context.area and context.area.type == 'VIEW_3D'):
+            
             mouse_x = event.mouse_region_x
             mouse_y = event.mouse_region_y
             
-            # Debug: Print click coordinates
-            # print(f"🎯 KHB_Display: Click at ({mouse_x}, {mouse_y})")
+            print(f"🖱️ KHB_Display: Left click at viewport ({mouse_x}, {mouse_y})")
             
+            # Try to handle button click
             if khb_handle_click(mouse_x, mouse_y):
+                print("🎯 Button click handled, staying in modal")
                 return {'RUNNING_MODAL'}
+            else:
+                print("⚪ Click missed buttons, passing through")
         
-        # Stop if system disabled
+        # Stop modal if system disabled
         if not _khb_state['enabled'] or not _khb_state['modal_running']:
+            print("🛑 KHB_Display: Modal stopping (system disabled)")
+            _khb_state['modal_running'] = False
             return {'CANCELLED'}
         
+        # Pass through all other events
         return {'PASS_THROUGH'}
     
     def invoke(self, context, event):
@@ -833,11 +871,12 @@ class KHB_DISPLAY_OT_modal_handler(Operator):
             _khb_state['modal_op'] = self
             _khb_state['modal_running'] = True
             context.window_manager.modal_handler_add(self)
-            print("🎮 KHB_Display: Modal handler active for enhanced button interactions")
+            print("🎮 KHB_Display: Enhanced modal handler started for button clicks")
             return {'RUNNING_MODAL'}
-        
-        return {'CANCELLED'}
-
+        else:
+            print("⚠️ KHB_Display: Modal invoke failed - not in VIEW_3D context")
+            return {'CANCELLED'}
+            
 # ==== LEGACY COMPATIBILITY CLASSES ====
 class KHB_IconManager:
     def khb_load_icons(self): return khb_load_icons()
@@ -890,3 +929,4 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+
