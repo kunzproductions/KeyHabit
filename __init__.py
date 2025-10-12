@@ -98,7 +98,7 @@ class KHB_AddonPreferences(AddonPreferences):
     
     khb_show_buttons: BoolProperty(
         name="Show Control Buttons",
-        description="Display interactive overlay control buttons (W/E/R/S)",
+        description="Display interactive overlay control buttons with icons",
         default=True,
         update=lambda self, context: self._update_display_settings()
     )
@@ -118,7 +118,7 @@ class KHB_AddonPreferences(AddonPreferences):
     
     khb_use_png_icons: BoolProperty(
         name="Use PNG Icons",
-        description="Try to load PNG icons from icons/ folder (fallback to text if unavailable)",
+        description="Try to load PNG icons from icons/ folder (fallback to alternatives if unavailable)",
         default=True,
         update=lambda self, context: self._update_display_settings()
     )
@@ -286,6 +286,7 @@ class KHB_AddonPreferences(AddonPreferences):
         button_col.prop(self, "khb_show_buttons")
         if self.khb_show_buttons:
             button_col.prop(self, "khb_button_position", text="Position")
+            button_col.label(text="💡 Buttons show: Icon + Full Name", icon='INFO')
     
     def _draw_module_info(self, layout, display_module):
         """Draw module information"""
@@ -299,8 +300,12 @@ class KHB_AddonPreferences(AddonPreferences):
         
         # Icon count
         if hasattr(display_module, 'KHB_MODIFIER_ICONS'):
-            icon_count = len(display_module.KHB_MODIFIER_ICONS)
-            info_col.label(text=f"Supported Modifiers: {icon_count}")
+            modifier_count = len(display_module.KHB_MODIFIER_ICONS)
+            info_col.label(text=f"Modifier Icons: {modifier_count}")
+        
+        if hasattr(display_module, 'KHB_BUTTON_ICONS'):
+            button_count = len(display_module.KHB_BUTTON_ICONS)
+            info_col.label(text=f"Button Icons: {button_count}")
         
         # System status
         if hasattr(display_module, 'khb_is_enabled'):
