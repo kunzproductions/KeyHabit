@@ -302,4 +302,125 @@ class KHB_PREFS_OT_test_display(bpy.types.Operator):
             # Test components
             if hasattr(display_module, 'khb_display_manager'):
                 manager = display_module.khb_display_manager
-                self.report({'INFO'}, f"Display manager
+                self.report({'INFO'}, f"Display manager: {type(manager).__name__}")
+                
+                # Test icon manager
+                if hasattr(display_module, 'khb_icon_manager'):
+                    icon_mgr = display_module.khb_icon_manager
+                    test_texture = icon_mgr.khb_get_texture('MIRROR')
+                    icon_status = "Working" if test_texture else "No texture"
+                    self.report({'INFO'}, f"Icon system: {icon_status}")
+                
+                # Test button manager
+                if hasattr(display_module, 'khb_button_manager'):
+                    btn_mgr = display_module.khb_button_manager
+                    btn_count = len(btn_mgr.buttons)
+                    self.report({'INFO'}, f"Button system: {btn_count} buttons")
+                
+                self.report({'INFO'}, "Display system test completed")
+            else:
+                self.report({'ERROR'}, "Display manager not found")
+                
+        except Exception as e:
+            self.report({'ERROR'}, f"Test failed: {e}")
+        
+        return {'FINISHED'}
+
+class KHB_PREFS_OT_force_cleanup(bpy.types.Operator):
+    """Force cleanup all resources"""
+    bl_idname = "khb_prefs.force_cleanup"
+    bl_label = "Force Cleanup"
+    bl_description = "Emergency cleanup of all display system resources"
+    bl_options = {'REGISTER'}
+    
+    def execute(self, context):
+        try:
+            # Disable display system
+            display_module = get_display_module()
+            if display_module:
+                display_module.khb_display_manager.khb_disable_display_system()
+            
+            # Nuclear cleanup - remove any orphaned handlers
+            try:
+                import gc
+                gc.collect()
+                
+                # Force redraw
+                for area in context.window.screen.areas:
+                    if area.type == 'VIEW_3D':
+                        area.tag_redraw()
+                        
+            except Exception:
+                pass
+            
+            self.report({'INFO'}, "Force cleanup completed")
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Force cleanup failed: {e}")
+        
+        return {'FINISHED'}
+
+# ==== REGISTRATION ====
+khb_addon_classes = (
+    KHB_AddonPreferences,
+    KHB_PREFS_OT_reload_icons,
+    KHB_PREFS_OT_test_display,
+    KHB_PREFS_OT_force_cleanup,
+)
+
+def register():
+    """Register KeyHabit addon"""
+    print("🚀 KeyHabit: Starting registration...")
+    
+    # Register addon preferences
+    for cls in khb_addon_classes:
+        try:
+            bpy.utils.register_class(cls)
+            print(f"✅ KeyHabit: {cls.__name__} registered")
+        except Exception as e:
+            print(f"❌ KeyHabit: {cls.__name__} registration failed - {e}")
+    
+    # Register modules
+    modules = ['KHB_Normal', 'KHB_Panel', 'KHB_Display']
+    
+    for module_name in modules:
+        module = safe_import_module(module_name)
+        if module and hasattr(module, 'register'):
+            try:
+                module.register()
+                print(f"✅ KeyHabit: {module_name} registered")
+            except Exception as e:
+                print(f"❌ KeyHabit: {module_name} registration failed - {e}")
+        elif module:
+            print(f"⚠️ KeyHabit: {module_name} has no register function")
+    
+    print("🎯 KeyHabit: Registration complete!")
+    print("💡 Configure Display System in Edit > Preferences > Add-ons > KeyHabit")
+
+def unregister():
+    """Unregister KeyHabit addon"""
+    print("🛑 KeyHabit: Starting unregistration...")
+    
+    # Unregister modules first (reverse order)
+    modules = ['KHB_Display', 'KHB_Panel', 'KHB_Normal']
+    
+    for module_name in modules:
+        module = safe_import_module(module_name)
+        if module and hasattr(module, 'unregister'):
+            try:
+                module.unregister()
+                print(f"✅ KeyHabit: {module_name} unregistered")
+            except Exception as e:
+                print(f"⚠️ KeyHabit: {module_name} unregistration error - {e}")
+    
+    # Unregister addon classes
+    for cls in reversed(khb_addon_classes):
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception as e:
+            print(f"⚠️ KeyHabit: {cls.__name__} unregistration error - {e}")
+    
+    print("👋 KeyHabit: Unregistration complete!")
+
+if __name__ == "__main__":
+    register()
