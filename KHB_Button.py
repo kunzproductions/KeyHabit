@@ -8,11 +8,9 @@ Integration: Seamless with existing KeyHabit addon architecture
 import bpy
 from bpy.types import Gizmo, GizmoGroup, Operator, Panel
 from bpy.props import (
-    BoolProperty, FloatProperty, IntProperty, 
-    EnumProperty, FloatVectorProperty, StringProperty
+    BoolProperty, FloatProperty, EnumProperty, FloatVectorProperty, StringProperty
 )
 from mathutils import Matrix, Vector
-import bmesh
 from bpy_extras import view3d_utils
 import blf
 import gpu
@@ -939,11 +937,9 @@ KHB_BUTTON_CLASSES = [
     # Operators
     KHB_OT_ButtonAction,
     KHB_OT_ResetButtonSystem,
-    
     # Gizmos
     KHB_GT_ButtonGizmo,
     KHB_GGT_ButtonGroup,
-    
     # UI Panels
     KHB_PT_ButtonSystemPanel,
     KHB_PT_ButtonQuickActionsPanel, 
@@ -1011,11 +1007,28 @@ def khb_unregister_button_properties():
 
 def register():
     """Main registration function - called by KeyHabit __init__.py"""
-    khb_register_button_system()
+    print(f"🎯 KeyHabit Button System v1.0.0: Registering...")
+    # Register properties first
+    khb_register_button_properties()
+    # Register classes
+    for cls in KHB_BUTTON_CLASSES:
+        try:
+            bpy.utils.register_class(cls)
+        except ValueError: # Ignore re-registration errors
+            pass
+    print("🎯 KeyHabit Button System: Registration complete!")
 
 def unregister():
     """Main unregistration function - called by KeyHabit __init__.py"""
-    khb_unregister_button_system()
+    print("🛑 KeyHabit Button System: Unregistering...")
+    # Unregister classes
+    for cls in reversed(KHB_BUTTON_CLASSES):
+        try:
+            bpy.utils.unregister_class(cls)
+        except RuntimeError: pass
+    # Unregister properties
+    khb_unregister_button_properties()
+    print("👋 KeyHabit Button System: Unregistration complete!")
 
 # For testing this module independently
 if __name__ == "__main__":
